@@ -8,7 +8,9 @@ export function ActivityLog({ events }: ActivityLogProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (bottomRef.current?.scrollIntoView) {
+      bottomRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
   }, [events]);
 
   return (
