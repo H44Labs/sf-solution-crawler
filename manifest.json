@@ -3,7 +3,7 @@
   "name": "SF Solution Crawler",
   "version": "0.1.0",
   "description": "AI-powered Salesforce opportunity crawler for generating NICE WFM Solution Design Documents",
-  "permissions": ["storage", "activeTab", "sidePanel"],
+  "permissions": ["storage", "activeTab", "sidePanel", "tabs"],
   "host_permissions": [
     "https://*.salesforce.com/*",
     "https://*.force.com/*",
