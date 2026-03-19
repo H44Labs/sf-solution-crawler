@@ -1,24 +1,96 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { createRoot } from 'react-dom/client';
 import { StartScreen } from './screens/StartScreen';
+import { CrawlScreen } from './screens/CrawlScreen';
+import { ReviewScreen } from './screens/ReviewScreen';
+import { DownloadScreen } from './screens/DownloadScreen';
 import { SettingsModal } from './components/SettingsModal';
+import { useCrawlState } from './hooks/useCrawlState';
+import { sendMessage } from './hooks/useMessaging';
 
 type Screen = 'start' | 'crawling' | 'review' | 'download';
 
 function App() {
   const [screen, setScreen] = useState<Screen>('start');
   const [showSettings, setShowSettings] = useState(false);
-  const [activeCrawlId, setActiveCrawlId] = useState<string | null>(null);
-  const [activeSEName, setActiveSEName] = useState<string>('');
+  const [crawlEvents, setCrawlEvents] = useState<string[]>([]);
+  const [documentBlob, setDocumentBlob] = useState<Blob | null>(null);
 
-  const handleStart = (seName: string) => {
-    setActiveSEName(seName);
-    setScreen('crawling');
-  };
+  const crawlState = useCrawlState();
 
-  const handleResume = (crawlId: string) => {
-    setActiveCrawlId(crawlId);
+  const handleStart = useCallback((seName: string) => {
+    setCrawlEvents([]);
     setScreen('crawling');
+    sendMessage({ type: 'START_CRAWL', payload: { seName } });
+  }, []);
+
+  const handleResume = useCallback((crawlId: string) => {
+    setScreen('crawling');
+    sendMessage({ type: 'RESUME_CRAWL', payload: { crawlId } });
+  }, []);
+
+  const handleAnswer = useCallback((answer: string) => {
+    sendMessage({ type: 'USER_ANSWER', payload: { answer } });
+  }, []);
+
+  const handlePause = useCallback(() => {
+    sendMessage({ type: 'PAUSE_CRAWL' });
+    setScreen('start');
+  }, []);
+
+  const handleCancel = useCallback(() => {
+    sendMessage({ type: 'CANCEL_CRAWL' });
+    setScreen('start');
+  }, []);
+
+  const handleApprove = useCallback(() => {
+    sendMessage({ type: 'GENERATE_DOC', payload: { sessionState: crawlState } });
+    setScreen('download');
+  }, [crawlState]);
+
+  const handleRecrawlSection = useCallback((section: string) => {
+    sendMessage({ type: 'RECRAWL_SECTION', payload: { section } });
+    setScreen('crawling');
+  }, []);
+
+  const handleEditField = useCallback((fieldName: string, newValue: string) => {
+    // Update local state — in a full implementation this would persist to storage
+  }, []);
+
+  const handleDownload = useCallback(() => {
+    if (documentBlob) {
+      const url = URL.createObjectURL(documentBlob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Solution_Design_${new Date().toISOString().slice(0, 10)}.docx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+  }, [documentBlob]);
+
+  const handleRegenerate = useCallback(() => {
+    setScreen('review');
+  }, []);
+
+  // Derive UI state from crawl state
+  const fieldsFound = crawlState ? Object.keys(crawlState.fieldsFound).length : 0;
+  const fieldsTotal = crawlState
+    ? Object.keys(crawlState.fieldsFound).length + crawlState.fieldsRemaining.length
+    : 0;
+  const pendingQuestion = crawlState?.pendingQuestions?.[0] || null;
+  const tokenUsage = crawlState?.tokenUsage || { total: 0, budget: 100000 };
+
+  // Auto-transition to review when crawl completes
+  if (screen === 'crawling' && crawlState?.status === 'complete') {
+    setScreen('review');
+  }
+
+  const fieldSummary = {
+    total: fieldsTotal,
+    filled: fieldsFound,
+    flagged: crawlState
+      ? Object.values(crawlState.fieldsFound).filter(f => f.confidence !== 'high').length
+      : 0,
   };
 
   return (
@@ -32,72 +104,42 @@ function App() {
       )}
 
       {screen === 'crawling' && (
-        <div
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            height: '100%',
-            backgroundColor: '#1a1a2e',
-            color: '#e0e0e0',
-            padding: '20px',
-            fontFamily: 'system-ui, -apple-system, sans-serif',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <p style={{ color: '#888' }}>Crawling screen — coming in Task 14</p>
-          <button
-            onClick={() => setScreen('start')}
-            style={{
-              marginTop: '12px',
-              padding: '8px 16px',
-              backgroundColor: 'transparent',
-              border: '1px solid #2a2a4a',
-              borderRadius: '6px',
-              color: '#aaa',
-              cursor: 'pointer',
-              fontSize: '13px',
-            }}
-          >
-            ← Back to Start
-          </button>
-        </div>
+        <CrawlScreen
+          events={crawlEvents}
+          fieldsFound={fieldsFound}
+          fieldsTotal={fieldsTotal}
+          pendingQuestion={pendingQuestion}
+          tokenUsage={tokenUsage}
+          onAnswer={handleAnswer}
+          onPause={handlePause}
+          onCancel={handleCancel}
+        />
       )}
 
-      {screen === 'review' && (
-        <div
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            height: '100%',
-            backgroundColor: '#1a1a2e',
-            color: '#e0e0e0',
-            padding: '20px',
-            fontFamily: 'system-ui, -apple-system, sans-serif',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <p style={{ color: '#888' }}>Review screen — coming in Task 15</p>
-        </div>
+      {screen === 'review' && crawlState && (
+        <ReviewScreen
+          fields={Object.fromEntries(
+            Object.entries(crawlState.fieldsFound).map(([k, v]) => [k, {
+              value: v.value,
+              confidence: v.confidence,
+              source: v.source,
+              rawEvidence: v.rawEvidence,
+            }])
+          )}
+          onApprove={handleApprove}
+          onRecrawlSection={handleRecrawlSection}
+          onCancel={handleCancel}
+          onEditField={handleEditField}
+        />
       )}
 
       {screen === 'download' && (
-        <div
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            height: '100%',
-            backgroundColor: '#1a1a2e',
-            color: '#e0e0e0',
-            padding: '20px',
-            fontFamily: 'system-ui, -apple-system, sans-serif',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <p style={{ color: '#888' }}>Download screen — coming in Task 15</p>
-        </div>
+        <DownloadScreen
+          documentBlob={documentBlob}
+          fieldSummary={fieldSummary}
+          onDownload={handleDownload}
+          onRegenerate={handleRegenerate}
+        />
       )}
 
       <SettingsModal isOpen={showSettings} onClose={() => setShowSettings(false)} />
