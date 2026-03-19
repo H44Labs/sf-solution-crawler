@@ -1,17 +1,18 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { resolve } from 'path';
-import { copyFileSync } from 'fs';
+import { copyFileSync, readFileSync, writeFileSync } from 'fs';
 
-// Plugin to copy the nested panel HTML to dist root after build
+// Plugin to copy the nested panel HTML to dist root and fix script paths
 function copyPanelHtml() {
   return {
     name: 'copy-panel-html',
     closeBundle() {
-      copyFileSync(
-        resolve(__dirname, 'dist/src/panel/index.html'),
-        resolve(__dirname, 'dist/panel.html'),
-      );
+      const src = resolve(__dirname, 'dist/src/panel/index.html');
+      let html = readFileSync(src, 'utf-8');
+      // Fix script src to be relative to dist root (not nested path)
+      html = html.replace(/src="[^"]*panel\.js"/, 'src="./panel.js"');
+      writeFileSync(resolve(__dirname, 'dist/panel.html'), html);
     },
   };
 }
@@ -30,6 +31,7 @@ function copyManifest() {
 }
 
 export default defineConfig({
+  base: './',
   plugins: [react(), copyPanelHtml(), copyManifest()],
   build: {
     rollupOptions: {
