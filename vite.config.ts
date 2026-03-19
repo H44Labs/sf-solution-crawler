@@ -16,8 +16,21 @@ function copyPanelHtml() {
   };
 }
 
+// Plugin to copy manifest.json to dist/ after build
+function copyManifest() {
+  return {
+    name: 'copy-manifest',
+    writeBundle() {
+      copyFileSync(
+        resolve(__dirname, 'manifest.json'),
+        resolve(__dirname, 'dist/manifest.json'),
+      );
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [react(), copyPanelHtml()],
+  plugins: [react(), copyPanelHtml(), copyManifest()],
   build: {
     rollupOptions: {
       input: {
