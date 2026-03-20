@@ -186,14 +186,14 @@ export class AIProviderClient {
           return await this.callProvider(provider, systemPrompt, userMessage);
         } catch (err) {
           if (err instanceof AuthError) {
-            // Auth errors are fatal — rethrow immediately, no fallback.
             throw err;
           }
           lastError = err as Error;
-          // Apply backoff delay after each failure.
+          console.error(`[AI Provider] ${provider.type} attempt ${attempt + 1}/${MAX_RETRIES} failed:`, lastError.message);
           await this.delay(BACKOFF_MS[attempt]);
         }
       }
+      console.error(`[AI Provider] ${provider.type} exhausted all ${MAX_RETRIES} retries. Last error:`, lastError?.message);
 
       // This provider exhausted all retries; move on to the next one.
       void lastError; // acknowledged

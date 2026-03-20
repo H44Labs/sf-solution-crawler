@@ -131,6 +131,17 @@ async function handleMessage(message: ExtensionMessage, sender: chrome.runtime.M
 
       const detectSessionExpiredFn = () => false;
 
+      // Test the API connection before starting the crawl
+      await log('[7/7] Testing AI connection...');
+      try {
+        const testResult = await aiClient.sendMessage('Respond with just the word OK.', 'Test');
+        await log(`[7/7] AI connection OK (${testResult.tokensUsed} tokens used)`);
+      } catch (testErr: any) {
+        await log(`[ERROR] AI connection test failed: ${testErr.message}`);
+        await log(`[ERROR] Please verify your API key in Settings and try again.`);
+        return { status: 'error', message: testErr.message };
+      }
+
       await log('[7/7] Starting crawl loop...');
 
       // Start the crawl asynchronously
