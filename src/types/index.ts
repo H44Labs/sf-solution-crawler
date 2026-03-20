@@ -20,7 +20,7 @@ export type UIMode = 'lightning' | 'classic';
 export type NavigationAction = 'navigate' | 'click' | 'scroll' | 'done' | 'askUser';
 
 // AI Provider type
-export type AIProviderType = 'claude' | 'openai' | 'groq';
+export type AIProviderType = 'claude' | 'openai' | 'groq' | 'gemini';
 
 // Scraped field from a page
 export interface ScrapedField {

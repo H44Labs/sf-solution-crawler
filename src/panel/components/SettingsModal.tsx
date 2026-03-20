@@ -301,6 +301,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             <option value="claude">Claude (Anthropic)</option>
             <option value="openai">OpenAI</option>
             <option value="groq">Groq</option>
+            <option value="gemini">Google Gemini</option>
           </select>
 
           <label style={styles.label} htmlFor="personal-key">Personal API Key</label>

@@ -131,6 +131,31 @@ function buildGroqRequest(
   };
 }
 
+function buildGeminiRequest(
+  provider: AIProviderConfig,
+  systemPrompt: string,
+  userMessage: string,
+): RequestSpec {
+  return {
+    url: `${provider.baseUrl}/v1beta/models/${provider.model}:generateContent?key=${provider.apiKey}`,
+    headers: {
+      'content-type': 'application/json',
+    },
+    body: {
+      system_instruction: { parts: [{ text: systemPrompt }] },
+      contents: [{ parts: [{ text: userMessage }] }],
+      generationConfig: { maxOutputTokens: 4096 },
+    },
+  };
+}
+
+function parseGemini(body: Record<string, any>): ParsedResponse {
+  const text: string = body.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+  const tokensUsed: number =
+    (body.usageMetadata?.promptTokenCount ?? 0) + (body.usageMetadata?.candidatesTokenCount ?? 0);
+  return { text, tokensUsed };
+}
+
 function buildRequest(
   provider: AIProviderConfig,
   systemPrompt: string,
@@ -143,6 +168,8 @@ function buildRequest(
       return buildOpenAIRequest(provider, systemPrompt, userMessage);
     case 'groq':
       return buildGroqRequest(provider, systemPrompt, userMessage);
+    case 'gemini':
+      return buildGeminiRequest(provider, systemPrompt, userMessage);
   }
 }
 
@@ -153,6 +180,8 @@ function parseResponse(
   switch (provider.type) {
     case 'claude':
       return parseClaude(body);
+    case 'gemini':
+      return parseGemini(body);
     case 'openai':
     case 'groq':
       return parseOpenAILike(body);

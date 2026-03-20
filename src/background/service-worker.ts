@@ -51,9 +51,11 @@ async function handleMessage(message: ExtensionMessage, sender: chrome.runtime.M
       const providerType = config.providers?.[0]?.type || 'groq';
       const baseUrl = providerType === 'claude' ? 'https://api.anthropic.com'
         : providerType === 'groq' ? 'https://api.groq.com'
+        : providerType === 'gemini' ? 'https://generativelanguage.googleapis.com'
         : 'https://api.openai.com';
       const model = providerType === 'claude' ? 'claude-sonnet-4-6-20250514'
         : providerType === 'groq' ? 'llama-3.3-70b-versatile'
+        : providerType === 'gemini' ? 'gemini-2.0-flash'
         : 'gpt-4o';
 
       const providers: AIProviderConfig[] = [{
@@ -136,18 +138,26 @@ async function handleMessage(message: ExtensionMessage, sender: chrome.runtime.M
       // Test the API connection with a raw fetch before starting the crawl
       await log('[7/7] Testing AI connection...');
       try {
-        const testBody: any = providerType === 'claude'
-          ? { model, max_tokens: 32, system: 'Respond with OK.', messages: [{ role: 'user', content: 'Test' }] }
-          : { model, messages: [{ role: 'system', content: 'Respond with OK.' }, { role: 'user', content: 'Test' }], max_tokens: 32 };
-        const testUrl = providerType === 'claude' ? `${baseUrl}/v1/messages`
-          : providerType === 'groq' ? `${baseUrl}/openai/v1/chat/completions`
-          : `${baseUrl}/v1/chat/completions`;
+        let testBody: any;
+        let testUrl: string;
         const testHeaders: Record<string, string> = { 'content-type': 'application/json' };
-        if (providerType === 'claude') {
+
+        if (providerType === 'gemini') {
+          testUrl = `${baseUrl}/v1beta/models/${model}:generateContent?key=${apiKey}`;
+          testBody = { contents: [{ parts: [{ text: 'Respond with OK.' }] }], generationConfig: { maxOutputTokens: 32 } };
+        } else if (providerType === 'claude') {
+          testUrl = `${baseUrl}/v1/messages`;
+          testBody = { model, max_tokens: 32, system: 'Respond with OK.', messages: [{ role: 'user', content: 'Test' }] };
           testHeaders['x-api-key'] = apiKey;
           testHeaders['anthropic-version'] = '2024-10-22';
           testHeaders['anthropic-dangerous-direct-browser-access'] = 'true';
+        } else if (providerType === 'groq') {
+          testUrl = `${baseUrl}/openai/v1/chat/completions`;
+          testBody = { model, messages: [{ role: 'system', content: 'Respond with OK.' }, { role: 'user', content: 'Test' }], max_tokens: 32 };
+          testHeaders['Authorization'] = `Bearer ${apiKey}`;
         } else {
+          testUrl = `${baseUrl}/v1/chat/completions`;
+          testBody = { model, messages: [{ role: 'system', content: 'Respond with OK.' }, { role: 'user', content: 'Test' }], max_tokens: 32 };
           testHeaders['Authorization'] = `Bearer ${apiKey}`;
         }
         await log(`[7/7] Testing: POST ${testUrl} with model "${model}"...`);
