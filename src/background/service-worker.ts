@@ -131,14 +131,34 @@ async function handleMessage(message: ExtensionMessage, sender: chrome.runtime.M
 
       const detectSessionExpiredFn = () => false;
 
-      // Test the API connection before starting the crawl
+      // Test the API connection with a raw fetch before starting the crawl
       await log('[7/7] Testing AI connection...');
       try {
-        const testResult = await aiClient.sendMessage('Respond with just the word OK.', 'Test');
-        await log(`[7/7] AI connection OK (${testResult.tokensUsed} tokens used)`);
+        const testBody: any = providerType === 'claude'
+          ? { model, max_tokens: 32, system: 'Respond with OK.', messages: [{ role: 'user', content: 'Test' }] }
+          : { model, messages: [{ role: 'system', content: 'Respond with OK.' }, { role: 'user', content: 'Test' }], max_tokens: 32 };
+        const testUrl = providerType === 'claude' ? `${baseUrl}/v1/messages`
+          : providerType === 'groq' ? `${baseUrl}/openai/v1/chat/completions`
+          : `${baseUrl}/v1/chat/completions`;
+        const testHeaders: Record<string, string> = { 'content-type': 'application/json' };
+        if (providerType === 'claude') {
+          testHeaders['x-api-key'] = apiKey;
+          testHeaders['anthropic-version'] = '2024-10-22';
+          testHeaders['anthropic-dangerous-direct-browser-access'] = 'true';
+        } else {
+          testHeaders['Authorization'] = `Bearer ${apiKey}`;
+        }
+        await log(`[7/7] Testing: POST ${testUrl} with model "${model}"...`);
+        const testResp = await fetch(testUrl, { method: 'POST', headers: testHeaders, body: JSON.stringify(testBody) });
+        const testRespBody = await testResp.text();
+        if (!testResp.ok) {
+          await log(`[ERROR] AI test returned HTTP ${testResp.status}: ${testRespBody.substring(0, 400)}`);
+          await log(`[ERROR] Fix your API key or model in Settings and try again.`);
+          return { status: 'error', message: `HTTP ${testResp.status}` };
+        }
+        await log(`[7/7] AI connection OK! (HTTP ${testResp.status})`);
       } catch (testErr: any) {
         await log(`[ERROR] AI connection test failed: ${testErr.message}`);
-        await log(`[ERROR] Please verify your API key in Settings and try again.`);
         return { status: 'error', message: testErr.message };
       }
 
