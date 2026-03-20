@@ -334,7 +334,7 @@ export function StartScreen({ onStart, onResume, onOpenSettings }: StartScreenPr
       </div>
 
       <div style={styles.footer}>
-        SF Solution Crawler v0.2.8
+        SF Solution Crawler v0.3.0
       </div>
     </div>
   );

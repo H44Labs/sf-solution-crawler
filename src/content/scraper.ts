@@ -1,125 +1,193 @@
 import type { PageData, ScrapedField, RelatedList, QuickLink, PageContext } from '../types';
 import { detectUIMode } from './detector';
 
-// ─── Lightning extraction ─────────────────────────────────────────────────────
+// ─── Deep Shadow DOM Traversal ───────────────────────────────────────────────
 
-export function extractFieldsLightning(root: Element): ScrapedField[] {
+/**
+ * querySelectorAll that pierces shadow DOM boundaries.
+ * Recursively enters open shadow roots up to maxDepth.
+ * This is CRITICAL for Salesforce Lightning which wraps everything in shadow DOM.
+ */
+function deepQueryAll(root: Element | ShadowRoot | Document, selector: string, maxDepth = 8, depth = 0): Element[] {
+  if (depth > maxDepth) return [];
+  const results: Element[] = [];
+  try { results.push(...Array.from(root.querySelectorAll(selector))); } catch { /* skip */ }
+  const children = root.querySelectorAll ? root.querySelectorAll('*') : [];
+  for (const child of Array.from(children)) {
+    if ((child as any).shadowRoot) {
+      results.push(...deepQueryAll((child as any).shadowRoot, selector, maxDepth, depth + 1));
+    }
+  }
+  return results;
+}
+
+/** querySelector that pierces shadow DOM. Returns first match or null. */
+function deepQuery(root: Element | ShadowRoot | Document, selector: string, maxDepth = 8, depth = 0): Element | null {
+  if (depth > maxDepth) return null;
+  const found = root.querySelector(selector);
+  if (found) return found;
+  const children = root.querySelectorAll ? root.querySelectorAll('*') : [];
+  for (const child of Array.from(children)) {
+    if ((child as any).shadowRoot) {
+      const r = deepQuery((child as any).shadowRoot, selector, maxDepth, depth + 1);
+      if (r) return r;
+    }
+  }
+  return null;
+}
+
+/**
+ * Extract visible text from an element, filtering out UI chrome.
+ */
+function extractTexts(el: Element): string[] {
+  const texts: string[] = [];
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  let node: Node | null;
+  while ((node = walker.nextNode())) {
+    const t = (node.textContent || '').trim();
+    if (
+      t && t.length < 500 &&
+      !t.startsWith('Edit ') && !t.startsWith('Open ') &&
+      !t.includes('Preview') && !t.startsWith('Help ') &&
+      t !== 'Edit' && t !== 'Change' && t !== 'Change Owner' &&
+      t !== 'Mark Stage as Complete' && !t.startsWith('Show Key Fields')
+    ) {
+      texts.push(t);
+    }
+  }
+  return texts;
+}
+
+// ─── Highlights Panel ────────────────────────────────────────────────────────
+
+function scrapeHighlights(): ScrapedField[] {
   const fields: ScrapedField[] = [];
 
-  // 1. Extract from records-highlights-details (compact layout highlight panel)
-  const highlights = root.querySelectorAll('records-highlights-details .highlights-detail-item');
-  highlights.forEach(item => {
-    const labelEl = item.querySelector('.label, p.label, span.label');
-    const valueEl = item.querySelector('.value, p.value, span.value');
-    const label = labelEl?.textContent?.trim() ?? '';
-    const value = valueEl?.textContent?.trim() ?? '';
-    if (label) {
+  const hlItems = deepQueryAll(document, 'records-highlights-details-item');
+  hlItems.forEach(item => {
+    const texts = extractTexts(item);
+    const label = texts[0] || '';
+    const value = texts.slice(1).join('; ') || '';
+    if (label && value) {
       fields.push({ label, value, section: 'Highlights' });
     }
   });
 
-  // 2. Extract from force-record-layout-section > lightning-output-field
-  const sections = root.querySelectorAll('force-record-layout-section');
-  if (sections.length > 0) {
-    sections.forEach(section => {
-      // Try to read a section title
-      const titleEl =
-        section.querySelector('.slds-section__title--divider') ??
-        section.querySelector('.slds-section__title') ??
-        section.querySelector('[title]');
-      const sectionName =
-        titleEl?.getAttribute('title') ??
-        titleEl?.textContent?.trim() ??
-        'Details';
-
-      section.querySelectorAll('lightning-output-field').forEach(field => {
-        const labelEl = field.querySelector('.slds-form-element__label, label');
-        const valueEl = field.querySelector('.slds-form-element__control, .fieldComponent, [class*="output"]');
-        const label = labelEl?.textContent?.trim() ?? '';
-        const value = valueEl?.textContent?.trim() ?? '';
-        if (label) {
-          fields.push({ label, value, section: sectionName });
-        }
-      });
-    });
-  } else {
-    // Fallback: query all lightning-output-field anywhere under root
-    root.querySelectorAll('lightning-output-field').forEach(field => {
-      const labelEl = field.querySelector('.slds-form-element__label, label');
-      const valueEl = field.querySelector('.slds-form-element__control, .fieldComponent, [class*="output"]');
-      const label = labelEl?.textContent?.trim() ?? '';
-      const value = valueEl?.textContent?.trim() ?? '';
-      if (label) {
-        fields.push({ label, value, section: 'Details' });
+  // Account Name from link
+  if (!fields.some(f => f.label === 'Account Name')) {
+    const accountLinks = deepQueryAll(document, 'a[href*="/Account/"], a[href*="/001"]');
+    for (const link of accountLinks) {
+      const text = (link.textContent || '').trim();
+      if (text && text.length > 2 && text.length < 100 && !text.includes('View All')) {
+        fields.push({ label: 'Account Name', value: text, section: 'Highlights' });
+        break;
       }
-    });
+    }
+  }
+
+  // Stage from path component
+  const pathOptions = deepQueryAll(document, '[role="option"]');
+  for (const opt of pathOptions) {
+    const isSelected = opt.getAttribute('aria-selected') === 'true' ||
+      opt.classList.contains('slds-is-current') ||
+      opt.classList.contains('slds-is-active');
+    if (isSelected) {
+      fields.push({ label: 'Current Stage', value: (opt.textContent || '').trim(), section: 'Path' });
+      break;
+    }
   }
 
   return fields;
 }
 
-// ─── Classic extraction ───────────────────────────────────────────────────────
+// ─── Detail Fields (deep shadow DOM) ─────────────────────────────────────────
 
-export function extractFieldsClassic(root: Element): ScrapedField[] {
+function scrapeDetailFields(): ScrapedField[] {
   const fields: ScrapedField[] = [];
-  const tables = root.querySelectorAll('table.detailList');
+  const seen = new Set<string>();
 
-  tables.forEach(table => {
-    // Try to find a preceding heading for section name
-    let sectionName = 'Details';
-    let sibling: Element | null = table.previousElementSibling;
-    while (sibling) {
-      const tag = sibling.tagName.toLowerCase();
-      if (/^h[1-6]$/.test(tag) || sibling.classList.contains('pageSubtitle')) {
-        sectionName = sibling.textContent?.trim() ?? 'Details';
-        break;
+  // All record layout items — deep into shadow DOM
+  const items = deepQueryAll(document, 'records-record-layout-item');
+
+  items.forEach(item => {
+    // Try to get API field name from shadow root
+    let apiName = '';
+    if ((item as any).shadowRoot) {
+      const div = (item as any).shadowRoot.querySelector('[data-target-selection-name]');
+      if (div) {
+        apiName = (div.getAttribute('data-target-selection-name') || '')
+          .replace(/^sfdc:RecordField\.\w+\./, '');
       }
-      sibling = sibling.previousElementSibling;
     }
 
-    const rows = table.querySelectorAll('tr');
-    rows.forEach(row => {
-      const labelCells = row.querySelectorAll('td.labelCol');
-      const dataCells = row.querySelectorAll('td.dataCol');
+    const texts = extractTexts(item);
+    const label = texts[0] || '';
+    const value = texts.slice(1).filter(t => t !== label).join('; ').substring(0, 500) || '';
 
-      labelCells.forEach((labelCell, i) => {
-        const label = labelCell.textContent?.trim() ?? '';
-        const value = dataCells[i]?.textContent?.trim() ?? '';
-        if (label) {
-          fields.push({ label, value, section: sectionName });
-        }
-      });
-    });
+    if (!label) return;
+    const key = apiName || label;
+    if (seen.has(key)) return;
+    seen.add(key);
+
+    if (value) {
+      fields.push({ label, value, section: 'Details' });
+    }
+  });
+
+  // Section headers for context
+  const sections = deepQueryAll(document, 'records-record-layout-section');
+  sections.forEach(sec => {
+    const texts = extractTexts(sec);
+    if (texts[0] && texts[0].length < 100) {
+      fields.push({ label: '__SECTION__', value: texts[0], section: 'Section Headers' });
+    }
   });
 
   return fields;
 }
 
-// ─── Related lists ────────────────────────────────────────────────────────────
+// ─── Related Lists ───────────────────────────────────────────────────────────
 
-export function extractRelatedLists(): RelatedList[] {
+function scrapeRelatedLists(): RelatedList[] {
   const lists: RelatedList[] = [];
 
-  // Classic: .relatedList divs containing tables
-  document.querySelectorAll('.relatedList').forEach(container => {
-    const headingEl =
-      container.querySelector('h3, h2, h4, .relatedListTitle') ??
-      container.querySelector('[class*="title"]');
-    const name = headingEl?.textContent?.trim() ?? 'Related List';
+  // Related list quick links with counts
+  const links = deepQueryAll(document, 'a[href*="/related/"]');
+  const rlInfo: Record<string, { count: number; href: string }> = {};
+  links.forEach(link => {
+    const text = (link.textContent || '').trim();
+    const match = text.match(/^(.+?)\s*\((\d+)\)$/);
+    if (match) {
+      rlInfo[match[1].trim()] = {
+        count: parseInt(match[2]),
+        href: link.getAttribute('href') || '',
+      };
+    }
+  });
 
-    const table = container.querySelector('table');
-    if (!table) return;
+  // Try to scrape inline related list tables
+  const rlContainers = deepQueryAll(document,
+    'lst-related-list-single-container, force-related-list-single-container, ' +
+    'lst-related-list-container, records-related-list-container, ' +
+    'flexipage-related-list, lightning-related-list-container'
+  );
+
+  rlContainers.forEach(container => {
+    const titleEl = deepQuery(container, 'h2, .slds-card__header-title');
+    const name = titleEl ? (titleEl.textContent || '').trim() : '';
+    if (!name) return;
 
     const columns: string[] = [];
-    table.querySelectorAll('thead th').forEach(th => {
-      columns.push(th.textContent?.trim() ?? '');
+    deepQueryAll(container, 'thead th, th').forEach(th => {
+      const t = (th.textContent || '').trim();
+      if (t && t !== 'Action' && t !== 'Actions') columns.push(t);
     });
 
     const rows: string[][] = [];
-    table.querySelectorAll('tbody tr').forEach(tr => {
+    deepQueryAll(container, 'tbody tr').forEach(tr => {
       const cells: string[] = [];
-      tr.querySelectorAll('td').forEach(td => {
-        cells.push(td.textContent?.trim() ?? '');
+      deepQueryAll(tr, 'td, th[scope="row"]').forEach(cell => {
+        cells.push((cell.textContent || '').trim());
       });
       if (cells.length > 0) rows.push(cells);
     });
@@ -127,40 +195,30 @@ export function extractRelatedLists(): RelatedList[] {
     lists.push({ name, columns, rows });
   });
 
-  // Lightning: lst-related-list-single-container
-  document.querySelectorAll('lst-related-list-single-container').forEach(container => {
-    const name = container.getAttribute('title') ?? 'Related List';
-
-    const columns: string[] = [];
-    container.querySelectorAll('table thead th').forEach(th => {
-      columns.push(th.textContent?.trim() ?? '');
-    });
-
-    const rows: string[][] = [];
-    container.querySelectorAll('table tbody tr').forEach(tr => {
-      const cells: string[] = [];
-      tr.querySelectorAll('td').forEach(td => {
-        cells.push(td.textContent?.trim() ?? '');
-      });
-      if (cells.length > 0) rows.push(cells);
-    });
-
-    lists.push({ name, columns, rows });
-  });
+  // Add quick link info as empty lists for context
+  for (const [name, info] of Object.entries(rlInfo)) {
+    if (!lists.some(l => l.name === name)) {
+      lists.push({ name: `${name} (${info.count})`, columns: [], rows: [] });
+    }
+  }
 
   return lists;
 }
 
-// ─── Quick links ──────────────────────────────────────────────────────────────
+// ─── Quick Links ─────────────────────────────────────────────────────────────
 
-export function extractQuickLinks(): QuickLink[] {
+function extractAllLinks(): QuickLink[] {
   const links: QuickLink[] = [];
+  const seen = new Set<string>();
 
-  document.querySelectorAll('.quickLinks a, [class*="quickLink"] a').forEach(anchor => {
+  deepQueryAll(document, 'a[href]').forEach(anchor => {
     const el = anchor as HTMLAnchorElement;
-    const text = el.textContent?.trim() ?? '';
-    const href = el.getAttribute('href') ?? el.href ?? '';
-    if (text || href) {
+    const text = (el.textContent || '').trim();
+    const href = el.href || '';
+    if (href && !seen.has(href) && text && text.length < 200 && (
+      href.includes('salesforce.com') || href.includes('force.com') || href.startsWith('/')
+    )) {
+      seen.add(href);
       links.push({ text, href });
     }
   });
@@ -168,161 +226,47 @@ export function extractQuickLinks(): QuickLink[] {
   return links;
 }
 
-// ─── Page context ─────────────────────────────────────────────────────────────
+// ─── Page Context ────────────────────────────────────────────────────────────
 
 export function extractPageContext(): PageContext {
   const uiMode = detectUIMode();
-  const title = document.title ?? '';
+  const title = document.title || '';
   const url = window.location.href;
 
   const breadcrumb: string[] = [];
-
-  // Lightning: <nav aria-label="Breadcrumbs"> or similar
-  const navEl =
-    document.querySelector('nav[aria-label="Breadcrumbs"]') ??
-    document.querySelector('nav[aria-label*="breadcrumb" i]') ??
-    document.querySelector('.breadcrumb, .slds-breadcrumb');
-
+  const navEl = deepQuery(document, 'nav[aria-label*="Breadcrumb" i], .breadcrumb, .slds-breadcrumb');
   if (navEl) {
-    navEl.querySelectorAll('li a, li span[class*="current"], li').forEach(item => {
-      const text = item.textContent?.trim() ?? '';
-      if (text && !breadcrumb.includes(text)) {
-        breadcrumb.push(text);
-      }
+    navEl.querySelectorAll('li a, li span, li').forEach(item => {
+      const text = (item.textContent || '').trim();
+      if (text && !breadcrumb.includes(text)) breadcrumb.push(text);
     });
   }
 
   return { url, title, breadcrumb, uiMode };
 }
 
-// ─── Notes ───────────────────────────────────────────────────────────────────
-
-export function extractNotes(): string[] {
-  const notes: string[] = [];
-
-  document.querySelectorAll('.notes p, .notes li, [class*="note"] p, [class*="description"] p').forEach(el => {
-    const text = el.textContent?.trim() ?? '';
-    if (text) notes.push(text);
-  });
-
-  return notes;
-}
-
-// ─── Raw text fallback ────────────────────────────────────────────────────────
-
-/**
- * When structured extraction returns nothing (common with Lightning shadow DOM),
- * fall back to extracting all visible text from the page. The AI is smart enough
- * to parse this into meaningful field/value pairs.
- */
-export function extractRawPageText(): ScrapedField[] {
-  const fields: ScrapedField[] = [];
-
-  // Strategy 1: Try to find ANY label/value-like patterns in the page
-  // Look for elements that have a label-like sibling/child structure
-  const allElements = document.querySelectorAll(
-    '[class*="label"], [class*="field"], [class*="detail"], [class*="record"], ' +
-    '[class*="output"], [class*="form-element"], [class*="slds-form"], ' +
-    'dt, th, label, [data-label]'
-  );
-
-  const seen = new Set<string>();
-  allElements.forEach(el => {
-    const label = el.getAttribute('data-label') || el.textContent?.trim() || '';
-    if (!label || label.length > 100 || seen.has(label)) return;
-
-    // Try to find a nearby value element
-    const parent = el.parentElement;
-    const nextSibling = el.nextElementSibling;
-    let value = '';
-
-    if (nextSibling) {
-      value = nextSibling.textContent?.trim() || '';
-    } else if (parent) {
-      // Check if parent has text beyond the label
-      const parentText = parent.textContent?.trim() || '';
-      if (parentText.length > label.length) {
-        value = parentText.replace(label, '').trim();
-      }
-    }
-
-    if (label && label.length < 80) {
-      seen.add(label);
-      fields.push({ label, value: value.substring(0, 500), section: 'Page Content' });
-    }
-  });
-
-  // Strategy 2: Extract ALL visible text as one big field for AI to parse
-  const bodyText = document.body.innerText || '';
-  if (bodyText.length > 0) {
-    // Break into chunks of ~2000 chars to stay manageable
-    const chunks = bodyText.match(/.{1,2000}/gs) || [];
-    chunks.forEach((chunk, i) => {
-      fields.push({
-        label: `__RAW_TEXT_CHUNK_${i + 1}__`,
-        value: chunk.trim(),
-        section: 'Raw Page Text',
-      });
-    });
-  }
-
-  return fields;
-}
-
-/**
- * Extract all clickable links on the page for navigation
- */
-export function extractAllLinks(): QuickLink[] {
-  const links: QuickLink[] = [];
-  const seen = new Set<string>();
-
-  document.querySelectorAll('a[href]').forEach(anchor => {
-    const el = anchor as HTMLAnchorElement;
-    const text = el.textContent?.trim() || '';
-    const href = el.href || '';
-
-    // Only include Salesforce internal links
-    if (href && !seen.has(href) && (
-      href.includes('salesforce.com') ||
-      href.includes('force.com') ||
-      href.startsWith('/')
-    )) {
-      seen.add(href);
-      if (text && text.length < 200) {
-        links.push({ text, href });
-      }
-    }
-  });
-
-  return links;
-}
-
-// ─── Entry point ──────────────────────────────────────────────────────────────
+// ─── Entry Point ─────────────────────────────────────────────────────────────
 
 export function scrapePage(): PageData {
   const pageContext = extractPageContext();
-  const root = document.body;
 
-  // Try structured extraction first
-  let fields: ScrapedField[] =
-    pageContext.uiMode === 'lightning'
-      ? extractFieldsLightning(root)
-      : extractFieldsClassic(root);
+  // Deep shadow DOM extraction — the real deal for Lightning
+  const highlights = scrapeHighlights();
+  const details = scrapeDetailFields();
+  const fields = [...highlights, ...details];
 
-  // If structured extraction found nothing, fall back to raw text
-  if (fields.length === 0) {
-    fields = extractRawPageText();
-  }
+  const relatedLists = scrapeRelatedLists();
+  const quickLinks = extractAllLinks();
 
-  let relatedLists = extractRelatedLists();
-  let quickLinks = extractQuickLinks();
-
-  // If no quick links found via specific selectors, extract all page links
-  if (quickLinks.length === 0) {
-    quickLinks = extractAllLinks();
-  }
-
-  const notes = extractNotes();
+  // Notes
+  const notes: string[] = [];
+  deepQueryAll(document, '[class*="note"] p, [class*="description"] p').forEach(el => {
+    const text = (el.textContent || '').trim();
+    if (text) notes.push(text);
+  });
 
   return { pageContext, fields, relatedLists, quickLinks, notes };
 }
+
+// Keep these exports for tests
+export { deepQueryAll, deepQuery, extractTexts, scrapeHighlights, scrapeDetailFields, scrapeRelatedLists, extractAllLinks };
