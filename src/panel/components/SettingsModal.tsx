@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { AIProviderType, CrawlConfig } from '../../types';
+import { AIProviderType, CrawlConfig, TeamMember } from '../../types';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -13,8 +13,10 @@ const DEFAULT_CONFIG: CrawlConfig = {
   providers: [
     { type: 'claude', apiKey: '', baseUrl: 'https://api.anthropic.com', model: 'claude-opus-4-5' },
   ],
-  teamRoster: [],
-  productDomains: [],
+  teamRoster: [
+    { name: 'Jay Sanchez-Orsini', email: 'jay.sanchez-orsini@nice.com' },
+  ],
+  productDomains: ['WFM', 'EEM', 'Performance Management'],
 };
 
 const styles: Record<string, React.CSSProperties> = {
@@ -214,7 +216,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [fallbackApiKey, setFallbackApiKey] = useState('');
   const [selectedProvider, setSelectedProvider] = useState<AIProviderType>('claude');
   const [newRosterName, setNewRosterName] = useState('');
-  const [newDomain, setNewDomain] = useState('');
+  const [newRosterEmail, setNewRosterEmail] = useState('');
   const [templateFileName, setTemplateFileName] = useState<string | null>(null);
 
   useEffect(() => {
@@ -249,25 +251,17 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   };
 
   const addRosterMember = () => {
-    const trimmed = newRosterName.trim();
-    if (!trimmed || config.teamRoster.includes(trimmed)) return;
-    setConfig(prev => ({ ...prev, teamRoster: [...prev.teamRoster, trimmed] }));
+    const name = newRosterName.trim();
+    const email = newRosterEmail.trim();
+    if (!name || !email) return;
+    if (config.teamRoster.some(m => m.email === email)) return;
+    setConfig(prev => ({ ...prev, teamRoster: [...prev.teamRoster, { name, email }] }));
     setNewRosterName('');
+    setNewRosterEmail('');
   };
 
-  const removeRosterMember = (name: string) => {
-    setConfig(prev => ({ ...prev, teamRoster: prev.teamRoster.filter(n => n !== name) }));
-  };
-
-  const addDomain = () => {
-    const trimmed = newDomain.trim();
-    if (!trimmed || config.productDomains.includes(trimmed)) return;
-    setConfig(prev => ({ ...prev, productDomains: [...prev.productDomains, trimmed] }));
-    setNewDomain('');
-  };
-
-  const removeDomain = (domain: string) => {
-    setConfig(prev => ({ ...prev, productDomains: prev.productDomains.filter(d => d !== domain) }));
+  const removeRosterMember = (email: string) => {
+    setConfig(prev => ({ ...prev, teamRoster: prev.teamRoster.filter(m => m.email !== email) }));
   };
 
   const handleTemplateUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -336,65 +330,45 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         <div style={styles.section}>
           <div style={styles.sectionTitle}>Team Roster</div>
           <div style={styles.rosterList} aria-label="Team roster">
-            {config.teamRoster.map((name) => (
-              <div key={name} style={styles.rosterItem}>
-                <span style={styles.rosterName}>{name}</span>
+            {config.teamRoster.map((member) => (
+              <div key={member.email} style={styles.rosterItem}>
+                <div style={{ flex: 1 }}>
+                  <div style={styles.rosterName}>{member.name}</div>
+                  <div style={{ fontSize: '11px', color: '#666' }}>{member.email}</div>
+                </div>
                 <button
                   style={styles.removeButton}
-                  onClick={() => removeRosterMember(name)}
-                  aria-label={`Remove ${name}`}
+                  onClick={() => removeRosterMember(member.email)}
+                  aria-label={`Remove ${member.name}`}
                 >
                   ✕
                 </button>
               </div>
             ))}
           </div>
-          <div style={styles.addRow}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
             <input
               style={styles.addInput}
               type="text"
               value={newRosterName}
               onChange={(e) => setNewRosterName(e.target.value)}
-              placeholder="SE full name"
+              placeholder="Full name"
               aria-label="New team member name"
-              onKeyDown={(e) => { if (e.key === 'Enter') addRosterMember(); }}
             />
-            <button style={styles.addButton} onClick={addRosterMember} aria-label="Add team member">
-              Add
-            </button>
-          </div>
-        </div>
-
-        {/* Product Domains */}
-        <div style={styles.section}>
-          <div style={styles.sectionTitle}>Product Domains</div>
-          <div style={styles.rosterList} aria-label="Product domains">
-            {config.productDomains.map((domain) => (
-              <div key={domain} style={styles.rosterItem}>
-                <span style={styles.rosterName}>{domain}</span>
-                <button
-                  style={styles.removeButton}
-                  onClick={() => removeDomain(domain)}
-                  aria-label={`Remove ${domain}`}
-                >
-                  ✕
-                </button>
-              </div>
-            ))}
-          </div>
-          <div style={styles.addRow}>
-            <input
-              style={styles.addInput}
-              type="text"
-              value={newDomain}
-              onChange={(e) => setNewDomain(e.target.value)}
-              placeholder="e.g. salesforce.com"
-              aria-label="New product domain"
-              onKeyDown={(e) => { if (e.key === 'Enter') addDomain(); }}
-            />
-            <button style={styles.addButton} onClick={addDomain} aria-label="Add domain">
-              Add
-            </button>
+            <div style={styles.addRow}>
+              <input
+                style={styles.addInput}
+                type="email"
+                value={newRosterEmail}
+                onChange={(e) => setNewRosterEmail(e.target.value)}
+                placeholder="email@nice.com"
+                aria-label="New team member email"
+                onKeyDown={(e) => { if (e.key === 'Enter') addRosterMember(); }}
+              />
+              <button style={styles.addButton} onClick={addRosterMember} aria-label="Add team member">
+                Add
+              </button>
+            </div>
           </div>
         </div>
 

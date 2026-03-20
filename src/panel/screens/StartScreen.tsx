@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { CrawlConfig } from '../../types';
+import { CrawlConfig, TeamMember } from '../../types';
 
 interface StartScreenProps {
   onStart: (seName: string) => void;
@@ -167,10 +167,13 @@ const styles: Record<string, React.CSSProperties> = {
 };
 
 export function StartScreen({ onStart, onResume, onOpenSettings }: StartScreenProps) {
-  const [teamRoster, setTeamRoster] = useState<string[]>([]);
-  const [selectedSE, setSelectedSE] = useState<string>('');
+  const [teamRoster, setTeamRoster] = useState<TeamMember[]>([
+    { name: 'Jay Sanchez-Orsini', email: 'jay.sanchez-orsini@nice.com' },
+  ]);
+  const [selectedSE, setSelectedSE] = useState<string>('Jay Sanchez-Orsini');
   const [detectedOpportunity, setDetectedOpportunity] = useState<{ name: string; url: string } | null>(null);
   const [interruptedSession, setInterruptedSession] = useState<{ crawlId: string; opportunityName: string } | null>(null);
+  const [onSalesforcePage, setOnSalesforcePage] = useState<boolean | null>(null);
 
   useEffect(() => {
     // Load settings from storage
@@ -178,7 +181,7 @@ export function StartScreen({ onStart, onResume, onOpenSettings }: StartScreenPr
       const config: CrawlConfig | undefined = result['crawl_config'];
       if (config?.teamRoster && config.teamRoster.length > 0) {
         setTeamRoster(config.teamRoster);
-        setSelectedSE(config.teamRoster[0]);
+        setSelectedSE(config.teamRoster[0].name);
       }
     });
 
@@ -205,12 +208,20 @@ export function StartScreen({ onStart, onResume, onOpenSettings }: StartScreenPr
 
     // Detect current opportunity from active tab
     chrome.runtime.sendMessage({ type: 'DETECT_MODE' }, (response) => {
-      if (chrome.runtime.lastError) return;
-      if (response?.opportunityName) {
-        setDetectedOpportunity({
-          name: response.opportunityName,
-          url: response.url || '',
-        });
+      if (chrome.runtime.lastError) {
+        setOnSalesforcePage(false);
+        return;
+      }
+      if (response?.mode) {
+        setOnSalesforcePage(true);
+        if (response.opportunityName) {
+          setDetectedOpportunity({
+            name: response.opportunityName,
+            url: response.url || '',
+          });
+        }
+      } else {
+        setOnSalesforcePage(false);
       }
     });
   }, []);
@@ -240,6 +251,24 @@ export function StartScreen({ onStart, onResume, onOpenSettings }: StartScreenPr
         </button>
       </div>
 
+      {onSalesforcePage === false && (
+        <div style={{
+          backgroundColor: '#2a1a00',
+          border: '1px solid #664400',
+          borderRadius: '8px',
+          padding: '12px',
+          marginBottom: '16px',
+          fontSize: '13px',
+          color: '#ffaa33',
+          lineHeight: '1.4',
+        }}>
+          <div style={{ fontWeight: '600', marginBottom: '4px' }}>Not on a Salesforce page</div>
+          <div style={{ fontSize: '12px', color: '#cc8800' }}>
+            Navigate to a Salesforce Opportunity in this tab, then reopen the panel.
+          </div>
+        </div>
+      )}
+
       <div style={styles.section}>
         <label style={styles.label} htmlFor="se-select">Solution Engineer</label>
         <select
@@ -252,9 +281,9 @@ export function StartScreen({ onStart, onResume, onOpenSettings }: StartScreenPr
           {teamRoster.length === 0 && (
             <option value="">— configure team roster in settings —</option>
           )}
-          {teamRoster.map((name) => (
-            <option key={name} value={name}>
-              {name}
+          {teamRoster.map((member) => (
+            <option key={member.email} value={member.name}>
+              {member.name} ({member.email})
             </option>
           ))}
         </select>

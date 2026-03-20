@@ -167,13 +167,19 @@ export interface AIProviderConfig {
   model: string;
 }
 
+// Team member with name and email
+export interface TeamMember {
+  name: string;
+  email: string;
+}
+
 // Crawl configuration
 export interface CrawlConfig {
   maxPages: number;
   tokenBudget: number;
   navigationTimeout: number;
   providers: AIProviderConfig[];
-  teamRoster: string[];
+  teamRoster: TeamMember[];
   productDomains: string[];
 }
 
