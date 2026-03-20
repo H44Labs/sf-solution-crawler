@@ -64,8 +64,10 @@ async function handleMessage(message: ExtensionMessage, sender: chrome.runtime.M
       }];
       await log(`[4/7] Provider: ${providerType} | Model: ${model} | URL: ${baseUrl}`);
 
-      // Build the AI Council
-      const aiClient = new AIProviderClient(providers);
+      // Build the AI Council (with logger that forwards to panel)
+      const aiClient = new AIProviderClient(providers, undefined, (msg) => {
+        log(msg); // fire-and-forget log to panel
+      });
       const fieldRegistry = await getFieldRegistry();
       const crawler = new CrawlerAgent(aiClient, fieldRegistry);
       const reviewer = new ReviewerAgent(aiClient);

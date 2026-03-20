@@ -163,16 +163,21 @@ function parseResponse(
 // AIProviderClient
 // ---------------------------------------------------------------------------
 
+export type ProviderLogger = (msg: string) => void;
+
 export class AIProviderClient {
   private providers: AIProviderConfig[];
   private delay: (ms: number) => Promise<void>;
+  private logger: ProviderLogger;
 
   constructor(
     providers: AIProviderConfig[],
     delay: (ms: number) => Promise<void> = defaultDelay,
+    logger: ProviderLogger = (msg) => console.log(msg),
   ) {
     this.providers = providers;
     this.delay = delay;
+    this.logger = logger;
   }
 
   async sendMessage(
@@ -190,11 +195,11 @@ export class AIProviderClient {
             throw err;
           }
           lastError = err as Error;
-          console.error(`[AI Provider] ${provider.type} attempt ${attempt + 1}/${MAX_RETRIES} failed:`, lastError.message);
+          this.logger(`[AI Retry] ${provider.type} attempt ${attempt + 1}/${MAX_RETRIES} failed: ${lastError.message.substring(0, 300)}`);
           await this.delay(BACKOFF_MS[attempt]);
         }
       }
-      console.error(`[AI Provider] ${provider.type} exhausted all ${MAX_RETRIES} retries. Last error:`, lastError?.message);
+      this.logger(`[AI ERROR] ${provider.type} exhausted all ${MAX_RETRIES} retries.`);
 
       // This provider exhausted all retries; move on to the next one.
       void lastError; // acknowledged

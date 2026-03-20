@@ -41,40 +41,45 @@ export class CrawlerAgent {
       pagesVisited: sessionState.pagesVisited.map((p) => ({ url: p.url, title: p.title })),
     });
 
+    console.log(`[CrawlerAgent] Sending ${trimmedPageData.fields.length} fields, ${userMessage.length} chars to AI`);
     const response = await this.aiClient.sendMessage(systemPrompt, userMessage);
     return this.parseResponse(response.text, response.tokensUsed);
   }
 
   /**
-   * Trim page data to keep the AI request within context limits.
-   * Prioritize structured fields over raw text chunks.
+   * Trim page data aggressively to stay within AI context/rate limits.
+   * Target: ~4000 tokens max for the user message.
    */
   private trimPageData(pageData: PageData): PageData {
     // Separate structured fields from raw text chunks
     const structuredFields = pageData.fields.filter(f => !f.label.startsWith('__RAW_TEXT'));
     const rawChunks = pageData.fields.filter(f => f.label.startsWith('__RAW_TEXT'));
 
-    // Keep all structured fields (up to 200)
-    const keptFields = structuredFields.slice(0, 200);
-
-    // Only include raw text if we have few structured fields (keep first 3 chunks max, ~6000 chars)
-    if (keptFields.length < 20 && rawChunks.length > 0) {
-      keptFields.push(...rawChunks.slice(0, 3));
-    }
-
-    // Truncate individual field values to 300 chars
-    const trimmedFields = keptFields.map(f => ({
+    // Keep structured fields (up to 80), truncate values to 150 chars
+    const keptFields = structuredFields.slice(0, 80).map(f => ({
       ...f,
-      value: f.value.substring(0, 300),
+      value: f.value.substring(0, 150),
     }));
 
-    // Limit quick links to 30 most relevant
-    const trimmedLinks = pageData.quickLinks.slice(0, 30);
+    // Only add ONE raw text chunk if we have very few structured fields
+    if (keptFields.length < 10 && rawChunks.length > 0) {
+      keptFields.push({
+        ...rawChunks[0],
+        value: rawChunks[0].value.substring(0, 2000),
+      });
+    }
+
+    // Limit quick links to 15
+    const trimmedLinks = pageData.quickLinks.slice(0, 15).map(l => ({
+      text: l.text.substring(0, 80),
+      href: l.href.substring(0, 120),
+    }));
 
     return {
       ...pageData,
-      fields: trimmedFields,
+      fields: keptFields,
       quickLinks: trimmedLinks,
+      notes: pageData.notes.slice(0, 5).map(n => n.substring(0, 200)),
     };
   }
 
