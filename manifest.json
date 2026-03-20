@@ -27,5 +27,11 @@
   },
   "action": {
     "default_title": "SF Solution Crawler"
-  }
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["templates/*"],
+      "matches": ["<all_urls>"]
+    }
+  ]
 }

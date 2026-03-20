@@ -65,9 +65,26 @@ async function handleMessage(message: ExtensionMessage, sender: chrome.runtime.M
       // Panel answered a question — forward to engine
       return { status: 'ok', answer: message.payload };
 
-    case 'GENERATE_DOC':
+    case 'GENERATE_DOC': {
       // message.payload: { sessionState }
-      return { status: 'generating' };
+      // Load template — custom upload takes priority, otherwise use bundled
+      const templateResult = await chrome.storage.local.get(['template_file']);
+      const templateSource = templateResult.template_file
+        ? 'custom'
+        : 'bundled';
+      return { status: 'generating', templateSource };
+    }
+
+    case 'GET_TEMPLATE': {
+      // Return the bundled template URL for the document generator
+      const customTemplate = await chrome.storage.local.get(['template_file']);
+      if (customTemplate.template_file) {
+        return { source: 'custom', data: customTemplate.template_file };
+      }
+      // Return path to bundled template
+      const bundledUrl = chrome.runtime.getURL('templates/WFM Design Document Template (Cloud) v1 2025 - JS.docx');
+      return { source: 'bundled', url: bundledUrl };
+    }
 
     case 'RECRAWL_SECTION':
       // message.payload: { section: string }
@@ -109,7 +126,9 @@ function getDefaultConfig() {
     tokenBudget: 100000,
     navigationTimeout: 15000,
     providers: [],
-    teamRoster: [],
+    teamRoster: [
+      { name: 'Jay Sanchez-Orsini', email: 'jay.sanchez-orsini@nice.com' },
+    ],
     productDomains: ['WFM', 'EEM', 'Performance Management'],
   };
 }

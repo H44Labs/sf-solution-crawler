@@ -372,10 +372,21 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           </div>
         </div>
 
-        {/* Template Upload */}
+        {/* Template */}
         <div style={styles.section}>
           <div style={styles.sectionTitle}>Document Template</div>
-          <label style={styles.label} htmlFor="template-upload">Upload .docx template</label>
+          <div style={{
+            backgroundColor: '#0a2a1a',
+            border: '1px solid #1a4a2a',
+            borderRadius: '6px',
+            padding: '10px',
+            marginBottom: '10px',
+            fontSize: '12px',
+            color: '#4caf50',
+          }}>
+            Bundled: WFM Design Document Template (Cloud) v1 2025
+          </div>
+          <label style={styles.label} htmlFor="template-upload">Upload custom template (optional override)</label>
           <input
             id="template-upload"
             type="file"
@@ -385,7 +396,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             aria-label="Upload document template"
           />
           {templateFileName && (
-            <div style={styles.fileName}>✓ {templateFileName}</div>
+            <div style={styles.fileName}>✓ Using custom: {templateFileName}</div>
           )}
         </div>
 

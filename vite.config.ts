@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { resolve } from 'path';
-import { copyFileSync, readFileSync, writeFileSync } from 'fs';
+import { copyFileSync, readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
 
 // Plugin to copy the nested panel HTML to dist root and fix script paths
 function copyPanelHtml() {
@@ -17,22 +17,30 @@ function copyPanelHtml() {
   };
 }
 
-// Plugin to copy manifest.json to dist/ after build
-function copyManifest() {
+// Plugin to copy manifest.json and template to dist/ after build
+function copyAssets() {
   return {
-    name: 'copy-manifest',
+    name: 'copy-assets',
     writeBundle() {
+      // Copy manifest
       copyFileSync(
         resolve(__dirname, 'manifest.json'),
         resolve(__dirname, 'dist/manifest.json'),
       );
+      // Copy template into dist/templates/
+      const templateDir = resolve(__dirname, 'dist/templates');
+      if (!existsSync(templateDir)) mkdirSync(templateDir, { recursive: true });
+      const templateSrc = resolve(__dirname, 'templates/WFM Design Document Template (Cloud) v1 2025 - JS.docx');
+      if (existsSync(templateSrc)) {
+        copyFileSync(templateSrc, resolve(templateDir, 'WFM Design Document Template (Cloud) v1 2025 - JS.docx'));
+      }
     },
   };
 }
 
 export default defineConfig({
   base: './',
-  plugins: [react(), copyPanelHtml(), copyManifest()],
+  plugins: [react(), copyPanelHtml(), copyAssets()],
   build: {
     rollupOptions: {
       input: {
