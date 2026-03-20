@@ -13,6 +13,7 @@ let activeCrawlEngine: CrawlEngine | null = null;
 
 chrome.runtime.onMessage.addListener((message: ExtensionMessage, sender, sendResponse) => {
   handleMessage(message, sender).then(sendResponse).catch(err => {
+    console.error('[SW] Message handler error:', err);
     sendResponse({ error: err.message });
   });
   return true;
@@ -28,30 +29,40 @@ async function handleMessage(message: ExtensionMessage, sender: chrome.runtime.M
 
     case 'START_CRAWL': {
       const { seName } = message.payload;
+      await log(`[1/7] START_CRAWL received for SE: ${seName}`);
 
       // Get config and API keys
       const config = await getConfig();
-      const personalKey = (await chrome.storage.local.get(['personal_api_key']))['personal_api_key'];
-      const fallbackKey = (await chrome.storage.local.get(['fallback_api_key']))['fallback_api_key'];
+      await log(`[2/7] Config loaded: maxPages=${config.maxPages}, tokenBudget=${config.tokenBudget}`);
+
+      const personalKeyResult = await chrome.storage.local.get(['personal_api_key']);
+      const fallbackKeyResult = await chrome.storage.local.get(['fallback_api_key']);
+      const personalKey = personalKeyResult['personal_api_key'];
+      const fallbackKey = fallbackKeyResult['fallback_api_key'];
 
       const apiKey = personalKey || fallbackKey;
       if (!apiKey) {
-        await emitCrawlEvent('No API key configured. Open Settings to add one.');
+        await log('[ERROR] No API key configured. Open Settings to add one.');
         return { status: 'error', message: 'No API key configured' };
       }
+      await log(`[3/7] API key found (${personalKey ? 'personal' : 'fallback'}, ${apiKey.substring(0, 8)}...)`);
 
       // Determine provider config
       const providerType = config.providers?.[0]?.type || 'groq';
+      const baseUrl = providerType === 'claude' ? 'https://api.anthropic.com'
+        : providerType === 'groq' ? 'https://api.groq.com'
+        : 'https://api.openai.com';
+      const model = providerType === 'claude' ? 'claude-sonnet-4-20250514'
+        : providerType === 'groq' ? 'llama-3.3-70b-versatile'
+        : 'gpt-4o';
+
       const providers: AIProviderConfig[] = [{
         type: providerType,
         apiKey,
-        baseUrl: providerType === 'claude' ? 'https://api.anthropic.com'
-          : providerType === 'groq' ? 'https://api.groq.com'
-          : 'https://api.openai.com',
-        model: providerType === 'claude' ? 'claude-sonnet-4-20250514'
-          : providerType === 'groq' ? 'llama-3.3-70b-versatile'
-          : 'gpt-4o',
+        baseUrl,
+        model,
       }];
+      await log(`[4/7] Provider: ${providerType} | Model: ${model} | URL: ${baseUrl}`);
 
       // Build the AI Council
       const aiClient = new AIProviderClient(providers);
@@ -60,6 +71,7 @@ async function handleMessage(message: ExtensionMessage, sender: chrome.runtime.M
       const reviewer = new ReviewerAgent(aiClient);
       const arbiter = new ArbiterAgent(aiClient);
       const council = new AICouncil(crawler, reviewer, arbiter);
+      await log(`[5/7] AI Council created (${fieldRegistry.length} template fields registered)`);
 
       // Create the crawl engine
       const engine = new CrawlEngine(council, config);
@@ -67,7 +79,7 @@ async function handleMessage(message: ExtensionMessage, sender: chrome.runtime.M
 
       // Listen for events and forward to panel
       engine.onEvent(async (event: CrawlEvent) => {
-        await emitCrawlEvent(event.message);
+        await log(`[Engine/${event.type}] ${event.message}`);
       });
 
       // Get opportunity info from the active tab
@@ -79,42 +91,81 @@ async function handleMessage(message: ExtensionMessage, sender: chrome.runtime.M
           opportunityUrl = tab.url;
           opportunityName = tab.title || 'Salesforce Opportunity';
         }
-      } catch { /* ignore */ }
+        await log(`[6/7] Tab detected: "${opportunityName}" at ${opportunityUrl.substring(0, 60)}...`);
+      } catch (e: any) {
+        await log(`[WARN] Could not read tab info: ${e.message}`);
+      }
 
-      // Create scrape and navigate functions that forward to the content script
+      // Create scrape and navigate functions
       const scrapeFn = async () => {
-        const result = await forwardToContentScript({ type: 'SCRAPE_PAGE' });
-        return result;
+        await log('[Scraper] Sending SCRAPE_PAGE to content script...');
+        try {
+          const result = await forwardToContentScript({ type: 'SCRAPE_PAGE' });
+          if (!result || result.error) {
+            await log(`[Scraper ERROR] ${result?.error || 'No response from content script'}`);
+            throw new Error(result?.error || 'Scrape failed - no response');
+          }
+          const fieldCount = result.fields?.length || 0;
+          const listCount = result.relatedLists?.length || 0;
+          const linkCount = result.quickLinks?.length || 0;
+          await log(`[Scraper] Page scraped: ${fieldCount} fields, ${listCount} related lists, ${linkCount} quick links`);
+          return result;
+        } catch (e: any) {
+          await log(`[Scraper ERROR] ${e.message}`);
+          throw e;
+        }
       };
-      const navigateFn = async (directive: any) => {
-        const result = await forwardToContentScript({ type: 'NAVIGATE', payload: directive });
-        return result?.success ?? false;
-      };
-      const detectSessionExpiredFn = () => false; // Will be checked via content script
 
-      // Start the crawl (async — don't await, let it run in background)
+      const navigateFn = async (directive: any) => {
+        await log(`[Navigator] Navigating to: ${directive.target} (reason: ${directive.reason})`);
+        try {
+          const result = await forwardToContentScript({ type: 'NAVIGATE', payload: directive });
+          const success = result?.success ?? false;
+          await log(`[Navigator] Navigation ${success ? 'succeeded' : 'FAILED'}`);
+          return success;
+        } catch (e: any) {
+          await log(`[Navigator ERROR] ${e.message}`);
+          return false;
+        }
+      };
+
+      const detectSessionExpiredFn = () => false;
+
+      await log('[7/7] Starting crawl loop...');
+
+      // Start the crawl asynchronously
       engine.start(seName, opportunityName, opportunityUrl, scrapeFn, navigateFn, detectSessionExpiredFn)
         .then(async (state) => {
-          await emitCrawlEvent(`Analysis complete! Found ${Object.keys(state.fieldsFound).length} fields.`);
+          const found = Object.keys(state.fieldsFound).length;
+          const remaining = state.fieldsRemaining.length;
+          await log(`[COMPLETE] Analysis finished! Found ${found} fields, ${remaining} remaining. Status: ${state.status}`);
+          if (found > 0) {
+            await log(`[COMPLETE] Fields found:`);
+            for (const [key, val] of Object.entries(state.fieldsFound)) {
+              await log(`  ${key} = "${val.value}" (${val.confidence} confidence)`);
+            }
+          }
         })
         .catch(async (err) => {
-          await emitCrawlEvent(`Error: ${err.message}`);
+          await log(`[FATAL ERROR] Crawl failed: ${err.message}`);
+          await log(`[FATAL ERROR] Stack: ${err.stack?.substring(0, 200) || 'no stack'}`);
         });
 
       return { status: 'started' };
     }
 
-    case 'RESUME_CRAWL': {
+    case 'RESUME_CRAWL':
       return { status: 'resumed' };
-    }
 
     case 'PAUSE_CRAWL':
       if (activeCrawlEngine) activeCrawlEngine.pause();
+      await log('[Engine] Crawl paused by user');
       return { status: 'paused' };
 
     case 'CANCEL_CRAWL':
       if (activeCrawlEngine) activeCrawlEngine.cancel();
       activeCrawlEngine = null;
+      await log('[Engine] Crawl cancelled by user');
       return { status: 'cancelled' };
 
     case 'SCRAPE_PAGE':
@@ -167,26 +218,38 @@ async function handleMessage(message: ExtensionMessage, sender: chrome.runtime.M
   }
 }
 
-async function forwardToContentScript(message: ExtensionMessage): Promise<any> {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab?.id) throw new Error('No active tab found');
-  return chrome.tabs.sendMessage(tab.id, message);
-}
-
-async function broadcastToPanel(message: ExtensionMessage): Promise<void> {
+// Log to both console AND the panel activity log
+async function log(message: string): Promise<void> {
+  const timestamp = new Date().toLocaleTimeString();
+  const formatted = `[${timestamp}] ${message}`;
+  console.log(formatted);
   try {
-    await chrome.runtime.sendMessage(message);
+    await chrome.runtime.sendMessage({
+      type: 'CRAWL_UPDATE',
+      payload: { event: formatted },
+    });
   } catch {
     // Panel might not be open
   }
 }
 
-async function emitCrawlEvent(eventMessage: string): Promise<void> {
+async function forwardToContentScript(message: ExtensionMessage): Promise<any> {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab?.id) {
+    await log('[ERROR] No active tab found — cannot communicate with content script');
+    throw new Error('No active tab found');
+  }
   try {
-    await chrome.runtime.sendMessage({
-      type: 'CRAWL_UPDATE',
-      payload: { event: eventMessage },
-    });
+    return await chrome.tabs.sendMessage(tab.id, message);
+  } catch (e: any) {
+    await log(`[ERROR] Content script communication failed: ${e.message}`);
+    throw e;
+  }
+}
+
+async function broadcastToPanel(message: ExtensionMessage): Promise<void> {
+  try {
+    await chrome.runtime.sendMessage(message);
   } catch {
     // Panel might not be open
   }
@@ -198,7 +261,6 @@ async function getConfig(): Promise<CrawlConfig> {
 }
 
 async function getFieldRegistry(): Promise<string[]> {
-  // Default field registry from the WFM template
   return [
     '[Licensed Agents]',
     '[Purchased Date]',
