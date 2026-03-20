@@ -208,19 +208,120 @@ export function extractNotes(): string[] {
   return notes;
 }
 
+// ─── Raw text fallback ────────────────────────────────────────────────────────
+
+/**
+ * When structured extraction returns nothing (common with Lightning shadow DOM),
+ * fall back to extracting all visible text from the page. The AI is smart enough
+ * to parse this into meaningful field/value pairs.
+ */
+export function extractRawPageText(): ScrapedField[] {
+  const fields: ScrapedField[] = [];
+
+  // Strategy 1: Try to find ANY label/value-like patterns in the page
+  // Look for elements that have a label-like sibling/child structure
+  const allElements = document.querySelectorAll(
+    '[class*="label"], [class*="field"], [class*="detail"], [class*="record"], ' +
+    '[class*="output"], [class*="form-element"], [class*="slds-form"], ' +
+    'dt, th, label, [data-label]'
+  );
+
+  const seen = new Set<string>();
+  allElements.forEach(el => {
+    const label = el.getAttribute('data-label') || el.textContent?.trim() || '';
+    if (!label || label.length > 100 || seen.has(label)) return;
+
+    // Try to find a nearby value element
+    const parent = el.parentElement;
+    const nextSibling = el.nextElementSibling;
+    let value = '';
+
+    if (nextSibling) {
+      value = nextSibling.textContent?.trim() || '';
+    } else if (parent) {
+      // Check if parent has text beyond the label
+      const parentText = parent.textContent?.trim() || '';
+      if (parentText.length > label.length) {
+        value = parentText.replace(label, '').trim();
+      }
+    }
+
+    if (label && label.length < 80) {
+      seen.add(label);
+      fields.push({ label, value: value.substring(0, 500), section: 'Page Content' });
+    }
+  });
+
+  // Strategy 2: Extract ALL visible text as one big field for AI to parse
+  const bodyText = document.body.innerText || '';
+  if (bodyText.length > 0) {
+    // Break into chunks of ~2000 chars to stay manageable
+    const chunks = bodyText.match(/.{1,2000}/gs) || [];
+    chunks.forEach((chunk, i) => {
+      fields.push({
+        label: `__RAW_TEXT_CHUNK_${i + 1}__`,
+        value: chunk.trim(),
+        section: 'Raw Page Text',
+      });
+    });
+  }
+
+  return fields;
+}
+
+/**
+ * Extract all clickable links on the page for navigation
+ */
+export function extractAllLinks(): QuickLink[] {
+  const links: QuickLink[] = [];
+  const seen = new Set<string>();
+
+  document.querySelectorAll('a[href]').forEach(anchor => {
+    const el = anchor as HTMLAnchorElement;
+    const text = el.textContent?.trim() || '';
+    const href = el.href || '';
+
+    // Only include Salesforce internal links
+    if (href && !seen.has(href) && (
+      href.includes('salesforce.com') ||
+      href.includes('force.com') ||
+      href.startsWith('/')
+    )) {
+      seen.add(href);
+      if (text && text.length < 200) {
+        links.push({ text, href });
+      }
+    }
+  });
+
+  return links;
+}
+
 // ─── Entry point ──────────────────────────────────────────────────────────────
 
 export function scrapePage(): PageData {
   const pageContext = extractPageContext();
   const root = document.body;
 
-  const fields: ScrapedField[] =
+  // Try structured extraction first
+  let fields: ScrapedField[] =
     pageContext.uiMode === 'lightning'
       ? extractFieldsLightning(root)
       : extractFieldsClassic(root);
 
-  const relatedLists = extractRelatedLists();
-  const quickLinks = extractQuickLinks();
+  // If structured extraction found nothing, fall back to raw text
+  if (fields.length === 0) {
+    fields = extractRawPageText();
+  }
+
+  let relatedLists = extractRelatedLists();
+  let quickLinks = extractQuickLinks();
+
+  // If no quick links found via specific selectors, extract all page links
+  if (quickLinks.length === 0) {
+    quickLinks = extractAllLinks();
+  }
+
   const notes = extractNotes();
 
   return { pageContext, fields, relatedLists, quickLinks, notes };

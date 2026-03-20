@@ -145,10 +145,16 @@ async function handleMessage(message: ExtensionMessage, sender: chrome.runtime.M
               await log(`  ${key} = "${val.value}" (${val.confidence} confidence)`);
             }
           }
+          if (state.status === 'paused' && Object.keys(state.fieldsFound).length === 0) {
+            await log(`[WARN] Crawl paused with no fields found. Common causes:`);
+            await log(`  - API key invalid or expired`);
+            await log(`  - API rate limit hit`);
+            await log(`  - Content script not injected (try refreshing the Salesforce page)`);
+          }
         })
         .catch(async (err) => {
           await log(`[FATAL ERROR] Crawl failed: ${err.message}`);
-          await log(`[FATAL ERROR] Stack: ${err.stack?.substring(0, 200) || 'no stack'}`);
+          await log(`[FATAL ERROR] Stack: ${err.stack?.substring(0, 300) || 'no stack'}`);
         });
 
       return { status: 'started' };

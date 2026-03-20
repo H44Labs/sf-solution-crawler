@@ -220,7 +220,9 @@ export class AIProviderClient {
     }
 
     if (!response.ok || TRANSIENT_STATUSES.has(response.status)) {
-      throw new Error(`HTTP ${response.status}`);
+      let errorBody = '';
+      try { errorBody = await response.text(); } catch { /* ignore */ }
+      throw new Error(`HTTP ${response.status}: ${errorBody.substring(0, 500)}`);
     }
 
     const json = (await response.json()) as Record<string, any>;
