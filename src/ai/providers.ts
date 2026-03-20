@@ -77,6 +77,7 @@ function buildClaudeRequest(
     headers: {
       'x-api-key': provider.apiKey,
       'anthropic-version': '2024-10-22',
+      'anthropic-dangerous-direct-browser-access': 'true',
       'content-type': 'application/json',
     },
     body: {
