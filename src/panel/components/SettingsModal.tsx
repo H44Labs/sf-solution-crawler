@@ -11,7 +11,7 @@ const DEFAULT_CONFIG: CrawlConfig = {
   tokenBudget: 100000,
   navigationTimeout: 10000,
   providers: [
-    { type: 'claude', apiKey: '', baseUrl: 'https://api.anthropic.com', model: 'claude-sonnet-4-6-20250514' },
+    { type: 'claude', apiKey: '', baseUrl: 'https://api.anthropic.com', model: 'claude-sonnet-4-20250514' },
   ],
   teamRoster: [
     { name: 'Jay Sanchez-Orsini', email: 'jay.sanchez-orsini@nice.com' },

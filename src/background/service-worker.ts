@@ -29,7 +29,7 @@ async function handleMessage(message: ExtensionMessage, sender: chrome.runtime.M
 
     case 'START_CRAWL': {
       const { seName } = message.payload;
-      await log(`[SF Solution Crawler v0.2.7]`);
+      await log(`[SF Solution Crawler v0.2.8]`);
       await log(`[1/7] START_CRAWL received for SE: ${seName}`);
 
       // Get config and API keys
@@ -54,7 +54,7 @@ async function handleMessage(message: ExtensionMessage, sender: chrome.runtime.M
         : providerType === 'groq' ? 'https://api.groq.com'
         : providerType === 'gemini' ? 'https://generativelanguage.googleapis.com'
         : 'https://api.openai.com';
-      const model = providerType === 'claude' ? 'claude-sonnet-4-6-20250514'
+      const model = providerType === 'claude' ? 'claude-sonnet-4-20250514'
         : providerType === 'groq' ? 'llama-3.3-70b-versatile'
         : providerType === 'gemini' ? 'gemini-2.0-flash'
         : 'gpt-4o';
