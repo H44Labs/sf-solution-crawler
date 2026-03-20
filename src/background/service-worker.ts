@@ -77,8 +77,8 @@ async function handleMessage(message: ExtensionMessage, sender: chrome.runtime.M
       const council = new AICouncil(crawler, reviewer, arbiter);
       await log(`[5/7] AI Council created (${fieldRegistry.length} template fields registered)`);
 
-      // Create the crawl engine
-      const engine = new CrawlEngine(council, config);
+      // Create the crawl engine with field registry
+      const engine = new CrawlEngine(council, config, fieldRegistry);
       activeCrawlEngine = engine;
 
       // Listen for events and forward to panel

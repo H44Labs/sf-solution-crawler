@@ -7,10 +7,11 @@ import { AIProviderConfig } from '../../src/types';
 // ---------------------------------------------------------------------------
 
 function makeProvider(type: AIProviderConfig['type'], overrides: Partial<AIProviderConfig> = {}): AIProviderConfig {
-  const defaults: Record<AIProviderConfig['type'], AIProviderConfig> = {
+  const defaults: Record<string, AIProviderConfig> = {
     claude: { type: 'claude', apiKey: 'sk-claude', baseUrl: 'https://api.anthropic.com', model: 'claude-3-5-sonnet-20241022' },
     openai: { type: 'openai', apiKey: 'sk-openai', baseUrl: 'https://api.openai.com', model: 'gpt-4o' },
     groq:   { type: 'groq',   apiKey: 'sk-groq',   baseUrl: 'https://api.groq.com',    model: 'llama3-70b-8192' },
+    gemini: { type: 'gemini', apiKey: 'ai-gemini', baseUrl: 'https://generativelanguage.googleapis.com', model: 'gemini-2.0-flash' },
   };
   return { ...defaults[type], ...overrides };
 }
@@ -97,8 +98,8 @@ describe('AIProviderClient', () => {
 
     // Exponential backoff: 1s then 2s
     expect(mockDelay).toHaveBeenCalledTimes(2);
-    expect(mockDelay).toHaveBeenNthCalledWith(1, 1000);
-    expect(mockDelay).toHaveBeenNthCalledWith(2, 2000);
+    expect(mockDelay).toHaveBeenNthCalledWith(1, 5000);
+    expect(mockDelay).toHaveBeenNthCalledWith(2, 15000);
   });
 
   // -------------------------------------------------------------------------
@@ -115,7 +116,7 @@ describe('AIProviderClient', () => {
     expect(result.text).toBe('Hello from Claude');
     expect(mockFetch).toHaveBeenCalledTimes(2);
     expect(mockDelay).toHaveBeenCalledTimes(1);
-    expect(mockDelay).toHaveBeenCalledWith(1000);
+    expect(mockDelay).toHaveBeenCalledWith(5000);
   });
 
   // -------------------------------------------------------------------------
@@ -166,9 +167,9 @@ describe('AIProviderClient', () => {
     expect(mockFetch).toHaveBeenCalledTimes(4);
     // 3 retries for first provider: delays at 1s, 2s, 4s
     expect(mockDelay).toHaveBeenCalledTimes(3);
-    expect(mockDelay).toHaveBeenNthCalledWith(1, 1000);
-    expect(mockDelay).toHaveBeenNthCalledWith(2, 2000);
-    expect(mockDelay).toHaveBeenNthCalledWith(3, 4000);
+    expect(mockDelay).toHaveBeenNthCalledWith(1, 5000);
+    expect(mockDelay).toHaveBeenNthCalledWith(2, 15000);
+    expect(mockDelay).toHaveBeenNthCalledWith(3, 30000);
   });
 
   // -------------------------------------------------------------------------

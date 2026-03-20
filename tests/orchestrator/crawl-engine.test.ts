@@ -1,4 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+// Mock setTimeout to resolve immediately (skip rate-limit delays in tests)
+const originalSetTimeout = globalThis.setTimeout;
+vi.stubGlobal('setTimeout', (fn: Function, _ms?: number) => originalSetTimeout(fn, 0));
 import { CrawlEngine, CrawlEvent } from '../../src/orchestrator/crawl-engine';
 import { AICouncil, CouncilResult } from '../../src/ai/council';
 import { StateManager } from '../../src/storage/state';
@@ -464,9 +468,6 @@ describe('CrawlEngine', () => {
     });
 
     it('removes found fields from fieldsRemaining', async () => {
-      const initialState = makeSessionState({ fieldsRemaining: ['field1', 'field2'] });
-      vi.mocked(StateManager.createSession).mockResolvedValue(initialState);
-
       mockCouncil.processPage.mockResolvedValue(makeCouncilResult({
         isComplete: true,
         acceptedFields: {
@@ -474,7 +475,8 @@ describe('CrawlEngine', () => {
         },
       }));
 
-      const engine = new CrawlEngine(mockCouncil as unknown as AICouncil, makeConfig());
+      // Pass field registry so fieldsRemaining is populated
+      const engine = new CrawlEngine(mockCouncil as unknown as AICouncil, makeConfig(), ['field1', 'field2']);
 
       const state = await engine.start('Jane', 'Opp A', 'https://example.salesforce.com/opp', scrapeFn, navigateFn, detectSessionExpiredFn);
 

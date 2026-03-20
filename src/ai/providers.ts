@@ -26,7 +26,7 @@ const MAX_RETRIES = 3;
 const TRANSIENT_STATUSES = new Set([429, 500, 503]);
 const AUTH_STATUSES = new Set([401, 403]);
 
-const BACKOFF_MS = [1000, 2000, 4000];
+const BACKOFF_MS = [5000, 15000, 30000]; // 5s, 15s, 30s — generous for rate-limited free tiers
 
 // ---------------------------------------------------------------------------
 // Default delay (real wait in production; injected in tests)

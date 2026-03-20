@@ -16,13 +16,15 @@ export type CrawlEventHandler = (event: CrawlEvent) => void;
 export class CrawlEngine {
   private council: AICouncil;
   private config: CrawlConfig;
+  private fieldRegistry: string[];
   private isPaused: boolean = false;
   private isCancelled: boolean = false;
   private eventHandler: CrawlEventHandler | null = null;
 
-  constructor(council: AICouncil, config: CrawlConfig) {
+  constructor(council: AICouncil, config: CrawlConfig, fieldRegistry: string[] = []) {
     this.council = council;
     this.config = config;
+    this.fieldRegistry = fieldRegistry;
   }
 
   onEvent(handler: CrawlEventHandler): void {
@@ -42,6 +44,7 @@ export class CrawlEngine {
     detectSessionExpiredFn: () => boolean,
   ): Promise<SessionState> {
     const state = await StateManager.createSession(seName, opportunityName, opportunityUrl);
+    state.fieldsRemaining = [...this.fieldRegistry];
     await StateManager.save(state);
     this.emit({ type: 'log', message: `Starting analysis of ${opportunityName}...` });
     return this.crawlLoop(state, scrapeFn, navigateFn, detectSessionExpiredFn);
@@ -175,6 +178,12 @@ export class CrawlEngine {
 
       // Save state after each page
       await StateManager.save(state);
+
+      // Rate limit pacing — wait between pages to avoid hitting API limits
+      if (state.status === 'crawling') {
+        this.emit({ type: 'log', message: 'Waiting 10s to respect API rate limits...' });
+        await new Promise(resolve => setTimeout(resolve, 10000));
+      }
     }
 
     // Max pages reached
