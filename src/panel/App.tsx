@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { StartScreen } from './screens/StartScreen';
 import { CrawlScreen } from './screens/CrawlScreen';
@@ -18,8 +18,19 @@ function App() {
 
   const crawlState = useCrawlState();
 
+  // Listen for crawl events from the service worker
+  useEffect(() => {
+    const listener = (message: any) => {
+      if (message.type === 'CRAWL_UPDATE' && message.payload?.event) {
+        setCrawlEvents(prev => [...prev, message.payload.event]);
+      }
+    };
+    chrome.runtime.onMessage.addListener(listener);
+    return () => chrome.runtime.onMessage.removeListener(listener);
+  }, []);
+
   const handleStart = useCallback((seName: string) => {
-    setCrawlEvents([]);
+    setCrawlEvents(['Starting analysis...']);
     setScreen('crawling');
     sendMessage({ type: 'START_CRAWL', payload: { seName } });
   }, []);

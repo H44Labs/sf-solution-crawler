@@ -65,7 +65,7 @@ describe('StartScreen', () => {
         if (keys.includes('crawl_config')) {
           callback({
             crawl_config: {
-              teamRoster: ['Alice Smith', 'Bob Jones', 'Carol Lee'],
+              teamRoster: [{ name: 'Alice Smith', email: 'alice@nice.com' }, { name: 'Bob Jones', email: 'bob@nice.com' }, { name: 'Carol Lee', email: 'carol@nice.com' }],
               providers: [{ type: 'claude', apiKey: '', baseUrl: '', model: '' }],
               maxPages: 30,
               tokenBudget: 100000,
@@ -91,10 +91,10 @@ describe('StartScreen', () => {
     expect(select).toBeInTheDocument();
 
     const options = select.querySelectorAll('option');
-    const names = Array.from(options).map((o) => o.textContent);
-    expect(names).toContain('Alice Smith');
-    expect(names).toContain('Bob Jones');
-    expect(names).toContain('Carol Lee');
+    const texts = Array.from(options).map((o) => o.textContent);
+    expect(texts).toContain('Alice Smith (alice@nice.com)');
+    expect(texts).toContain('Bob Jones (bob@nice.com)');
+    expect(texts).toContain('Carol Lee (carol@nice.com)');
   });
 
   it('shows opportunity name when detected', async () => {
@@ -102,6 +102,7 @@ describe('StartScreen', () => {
       (_msg: any, callback?: (response: any) => void) => {
         if (callback) {
           callback({
+            mode: 'lightning',
             opportunityName: 'Acme Corp — Enterprise Deal',
             url: 'https://salesforce.com/opportunity/001',
           });
@@ -124,7 +125,7 @@ describe('StartScreen', () => {
         if (keys.includes('crawl_config')) {
           callback({
             crawl_config: {
-              teamRoster: ['Alice Smith', 'Bob Jones'],
+              teamRoster: [{ name: 'Alice Smith', email: 'alice@nice.com' }, { name: 'Bob Jones', email: 'bob@nice.com' }],
               providers: [{ type: 'claude', apiKey: '', baseUrl: '', model: '' }],
               maxPages: 30,
               tokenBudget: 100000,
