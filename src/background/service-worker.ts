@@ -29,6 +29,7 @@ async function handleMessage(message: ExtensionMessage, sender: chrome.runtime.M
 
     case 'START_CRAWL': {
       const { seName } = message.payload;
+      await log(`[SF Solution Crawler v0.2.7]`);
       await log(`[1/7] START_CRAWL received for SE: ${seName}`);
 
       // Get config and API keys
