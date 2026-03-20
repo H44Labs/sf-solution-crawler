@@ -319,14 +319,17 @@ describe('CrawlEngine', () => {
       expect(events.some(e => e.type === 'error' && e.message.includes('AI providers exhausted'))).toBe(true);
     });
 
-    it('rethrows non-AllProvidersExhaustedError errors', async () => {
+    it('catches non-AllProvidersExhaustedError errors gracefully', async () => {
       mockCouncil.processPage.mockRejectedValue(new Error('Unexpected failure'));
 
       const engine = new CrawlEngine(mockCouncil as unknown as AICouncil, makeConfig());
+      const events: CrawlEvent[] = [];
+      engine.onEvent(e => events.push(e));
 
-      await expect(
-        engine.start('Jane', 'Opp A', 'https://example.salesforce.com/opp', scrapeFn, navigateFn, detectSessionExpiredFn),
-      ).rejects.toThrow('Unexpected failure');
+      const state = await engine.start('Jane', 'Opp A', 'https://example.salesforce.com/opp', scrapeFn, navigateFn, detectSessionExpiredFn);
+
+      expect(state.status).toBe('paused');
+      expect(events.some(e => e.type === 'error' && e.message.includes('Unexpected failure'))).toBe(true);
     });
   });
 

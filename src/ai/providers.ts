@@ -12,8 +12,8 @@ export class AllProvidersExhaustedError extends Error {
 }
 
 class AuthError extends Error {
-  constructor(public readonly status: number) {
-    super(`Auth error: ${status}`);
+  constructor(public readonly status: number, public readonly body?: string) {
+    super(`Auth error ${status}: ${body?.substring(0, 300) || 'no details'}`);
     this.name = 'AuthError';
   }
 }
@@ -216,7 +216,9 @@ export class AIProviderClient {
     });
 
     if (AUTH_STATUSES.has(response.status)) {
-      throw new AuthError(response.status);
+      let errorBody = '';
+      try { errorBody = await response.text(); } catch { /* ignore */ }
+      throw new AuthError(response.status, errorBody);
     }
 
     if (!response.ok || TRANSIENT_STATUSES.has(response.status)) {

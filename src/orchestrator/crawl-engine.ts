@@ -105,14 +105,18 @@ export class CrawlEngine {
       let result: CouncilResult;
       try {
         result = await this.council.processPage(pageData, state);
-      } catch (err) {
+      } catch (err: any) {
         if (err instanceof AllProvidersExhaustedError) {
           state.status = 'paused';
           await StateManager.save(state);
           this.emit({ type: 'error', message: 'All AI providers exhausted. Please check API keys and try again.' });
           return state;
         }
-        throw err;
+        // Catch auth errors and any other errors — don't crash
+        state.status = 'paused';
+        await StateManager.save(state);
+        this.emit({ type: 'error', message: `AI error: ${err.message || err}` });
+        return state;
       }
 
       // Update state with results
