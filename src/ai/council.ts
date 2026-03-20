@@ -28,52 +28,48 @@ export class AICouncil {
   ) {}
 
   async processPage(pageData: PageData, state: SessionState): Promise<CouncilResult> {
-    // 1. Crawler analyzes page
+    // 1. Crawler analyzes page (single AI call — lightweight mode for free tier)
     const crawlerResult = await this.crawler.analyze(pageData, state);
 
-    // 2. Reviewer validates extractions (convert CrawlerExtraction[] to ReviewerInput[])
-    const reviewerInputs: ReviewerInput[] = crawlerResult.extractedFields.map(f => ({
-      templateField: f.templateField,
-      value: f.value,
-      rawEvidence: f.rawEvidence,
-      confidence: f.confidence,
-    }));
-    const reviewerResult = await this.reviewer.validate(reviewerInputs, pageData);
-
-    // 3. Arbiter makes final decisions
-    const arbiterResult = await this.arbiter.decide(
-      crawlerResult.extractedFields,
-      reviewerResult.reviews,
-      state
-    );
-
-    // 4. Build result: extract accepted fields, compile questions, etc.
+    // Accept all crawler extractions directly (skip Reviewer + Arbiter to save tokens)
+    // The Crawler already assigns confidence levels
     const acceptedFields: Record<string, { value: string; confidence: string; source: string; rawEvidence: string }> = {};
-    for (const decision of arbiterResult.fieldDecisions) {
-      if (decision.decision === 'accepted') {
-        const extraction = crawlerResult.extractedFields.find(f => f.templateField === decision.templateField);
-        const review = reviewerResult.reviews.find(r => r.templateField === decision.templateField);
-        if (extraction) {
-          acceptedFields[decision.templateField] = {
-            value: review?.suggestedValue || extraction.value,
-            confidence: review?.confidence || extraction.confidence,
-            source: pageData.pageContext.title,
-            rawEvidence: extraction.rawEvidence,
-          };
-        }
+    for (const extraction of crawlerResult.extractedFields) {
+      if (extraction.templateField && extraction.value) {
+        acceptedFields[extraction.templateField] = {
+          value: extraction.value,
+          confidence: extraction.confidence,
+          source: pageData.pageContext.title,
+          rawEvidence: extraction.rawEvidence,
+        };
       }
     }
 
-    const totalTokens = crawlerResult.tokensUsed + reviewerResult.tokensUsed + arbiterResult.tokensUsed;
+    // Detect deployment type from extracted fields
+    const hasExistingVersion = crawlerResult.extractedFields.some(
+      f => f.templateField === '[Existing WFM Version]' && f.value
+    );
+    const oppName = (pageData.pageContext.title || '').toLowerCase();
+    const isMigration = hasExistingVersion ||
+      oppName.includes('migration') ||
+      oppName.includes('upgrade') ||
+      oppName.includes('conversion');
+
+    // Detect products from fields
+    const hasEEM = crawlerResult.extractedFields.some(
+      f => f.templateField === '[Employee Engagement Manager]' && f.value.toLowerCase().includes('yes')
+    );
+
+    const isComplete = crawlerResult.nextNavigation.action === 'done';
 
     return {
       acceptedFields,
       navigation: crawlerResult.nextNavigation,
-      questionsForUser: arbiterResult.questionsForUser,
-      deploymentType: arbiterResult.deploymentType,
-      productsDetected: arbiterResult.productsDetected,
-      isComplete: arbiterResult.completionAssessment.isComplete,
-      totalTokensUsed: totalTokens,
+      questionsForUser: [],
+      deploymentType: isMigration ? 'migration' : 'new_business',
+      productsDetected: { wfm: true, eem: hasEEM, performanceManagement: false },
+      isComplete,
+      totalTokensUsed: crawlerResult.tokensUsed,
     };
   }
 
