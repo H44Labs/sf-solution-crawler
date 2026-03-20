@@ -149,7 +149,7 @@ async function handleMessage(message: ExtensionMessage, sender: chrome.runtime.M
           testUrl = `${baseUrl}/v1/messages`;
           testBody = { model, max_tokens: 32, system: 'Respond with OK.', messages: [{ role: 'user', content: 'Test' }] };
           testHeaders['x-api-key'] = apiKey;
-          testHeaders['anthropic-version'] = '2024-10-22';
+          testHeaders['anthropic-version'] = '2023-06-01';
           testHeaders['anthropic-dangerous-direct-browser-access'] = 'true';
         } else if (providerType === 'groq') {
           testUrl = `${baseUrl}/openai/v1/chat/completions`;
