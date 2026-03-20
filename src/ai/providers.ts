@@ -76,7 +76,7 @@ function buildClaudeRequest(
     url: `${provider.baseUrl}/v1/messages`,
     headers: {
       'x-api-key': provider.apiKey,
-      'anthropic-version': '2023-06-01',
+      'anthropic-version': '2024-10-22',
       'content-type': 'application/json',
     },
     body: {

@@ -52,7 +52,7 @@ async function handleMessage(message: ExtensionMessage, sender: chrome.runtime.M
       const baseUrl = providerType === 'claude' ? 'https://api.anthropic.com'
         : providerType === 'groq' ? 'https://api.groq.com'
         : 'https://api.openai.com';
-      const model = providerType === 'claude' ? 'claude-sonnet-4-20250514'
+      const model = providerType === 'claude' ? 'claude-sonnet-4-6-20250514'
         : providerType === 'groq' ? 'llama-3.3-70b-versatile'
         : 'gpt-4o';
 
